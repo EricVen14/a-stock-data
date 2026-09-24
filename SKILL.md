@@ -412,10 +412,10 @@ ETF期权层 (V3.3 新增)
 ## Prerequisites
 
 ```bash
-pip install mootdx requests pandas stockstats numpy baostock xlrd openpyxl
+pip install mootdx requests pandas stockstats numpy baostock xlrd openpyxl lxml
 ```
 
-> **装完先真的 import 一次**：`python -c "import mootdx, pandas, baostock, stockstats, xlrd, openpyxl"`。
+> **装完先真的 import 一次**：`python -c "import mootdx, pandas, baostock, stockstats, xlrd, openpyxl, lxml"`。
 > **「包存在」不等于「能导入」**：wheel 的 `cpXXX` 标签与解释器不匹配时，包会安静地躺在 site-packages 里，直到第一次
 > `import pandas` 才报 `ModuleNotFoundError`（2026-09-24 实测：3.12 解释器里装着 cp310 的 pandas，`pandas/_libs` 的
 > 26 个扩展全是 `cp310-win_amd64`，`importlib.util.find_spec("pandas")` 查得到、import 必崩）。`pip.ini` 的
@@ -426,6 +426,7 @@ pip install mootdx requests pandas stockstats numpy baostock xlrd openpyxl
 | mootdx | >= 0.10 | TCP 财务快照+F10（非 HTTP 依赖之一；K 线/盘口/逐笔 2026-09 起返回空，#52）；0.11.x 用 `tdx_client()` 规避 BESTIP bug，见下节 |
 | requests | any | 所有HTTP API直连 |
 | pandas | any | 数据处理+HTML表格解析 |
+| lxml | any | §2.2 同花顺一致预期 EPS 的 `pandas.read_html` 解析引擎；缺它 §2.2 与估值流程 A `full_valuation()` 直接 ImportError |
 | stockstats | any | 技术指标计算（RSI/MACD/BOLL等） |
 | numpy | any | §4.6 筹码分布的网格计算 |
 | baostock | >= 0.8 | §6.5/§6.6 估值历史·换手率·停牌·ST·退市日，§6.8 ST 名单兜底（TCP，免注册免 key；**不支持北交所**） |
@@ -3157,6 +3158,12 @@ print(f"\n近20日主力累计净流入: {total_main/1e8:.2f}亿")
 业界通行做法是**本地推演**：历史筹码按换手率衰减，当日成交量按三角分布撒进 `[low, high]` 区间。
 **零新增数据源** —— OHLC 与换手率都从 §6.5 baostock 一次取齐（见下方用法）。
 
+> 🔴 **输入契约**：`chip_distribution()` 需要 `date` / `high` / `low` / `close` / `turn` 五列。
+> §6.5 的 `baostock_valuation_history()` **只给 `close` 与 `turn`，不含 OHLC**（实测列为
+> `date/code/close/peTTM/pbMRQ/psTTM/pcfNcfTTM/turn/tradestatus/isST`），直接拿它当输入会因缺 `high` / `low` 抛错。
+> OHLC 有两条路：① 按下方用法用 baostock 原生 `query_history_k_data_plus` 取（`adjustflag="2"` 前复权）；
+> ② 取 §1.2 `tencent_kline(..., adjust='qfq')` 的 OHLC，与 §6.5 的 `turn` 按 `date` 合并。
+
 ```python
 import numpy as np
 import pandas as pd
@@ -3257,7 +3264,7 @@ def chip_distribution(df: pd.DataFrame, grid_size: int = 300, decay: float = 1.0
     }
 
 
-# 用法 — 输入用 §6.5 baostock（一次拿齐 OHLC + 换手率）
+# 用法 — 输入需 date/high/low/close/turn 五列；下面用 baostock 原生查询一次取齐 OHLC + 换手率（前复权）
 import baostock as bs
 
 bs_code = _bs_code("600519")
