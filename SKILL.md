@@ -415,6 +415,12 @@ ETF期权层 (V3.3 新增)
 pip install mootdx requests pandas stockstats numpy baostock xlrd openpyxl
 ```
 
+> **装完先真的 import 一次**：`python -c "import mootdx, pandas, baostock, stockstats, xlrd, openpyxl"`。
+> **「包存在」不等于「能导入」**：wheel 的 `cpXXX` 标签与解释器不匹配时，包会安静地躺在 site-packages 里，直到第一次
+> `import pandas` 才报 `ModuleNotFoundError`（2026-09-24 实测：3.12 解释器里装着 cp310 的 pandas，`pandas/_libs` 的
+> 26 个扩展全是 `cp310-win_amd64`，`importlib.util.find_spec("pandas")` 查得到、import 必崩）。`pip.ini` 的
+> `global.target` 会让任意解释器的 pip 都写进同一个 site-packages，是这种错配的常见来源。
+
 | 依赖 | 版本要求 | 用途 |
 |------|---------|------|
 | mootdx | >= 0.10 | TCP 财务快照+F10（非 HTTP 依赖之一；K 线/盘口/逐笔 2026-09 起返回空，#52）；0.11.x 用 `tdx_client()` 规避 BESTIP bug，见下节 |
@@ -1160,6 +1166,10 @@ etf_quotes = tencent_quote(["510050", "510300"])
 三个都不可用才抛错（#52 实测单入口约 600 次后返回空 JSON）。**只支持沪深**：腾讯对北交所只返回最新 1 根日线、
 区间和分钟线都是空的（2026-09-20 实测 920021 / 920982 / 920185），函数遇北交所代码直接抛 `ValueError`，北交所日线用 §1.3。
 
+补充一条实测的失效形态：**入口不可用是路径级的**。2026-09-24 实测 `web.ifzq.gtimg.cn` 的 `mkline`（分钟线）被 TCP 重置
+（WinError 10053 ConnectionReset），同一域名的 `fqkline`（日周月）同时 200 正常，另两个入口两条路径均 200——
+日线能通不代表分钟线能通，三入口轮换正是为这种单点故障准备的。
+
 | 参数 | 说明 |
 |---|---|
 | `period` | `day` / `week` / `month`：默认前复权，可 `adjust='hfq'` 或 `adjust=''`（不复权）；`m1` / `m5` / `m15` / `m30` / `m60`：只有不复权、只能取最近 ≤320 根 |
@@ -1169,6 +1179,11 @@ etf_quotes = tencent_quote(["510050", "510300"])
 > ⚠️ **腾讯前复权是等差口径**（逐次减去每股分红）：茅台 2020-01-02 原始价 1130.00、腾讯 qfq 870.741，差额正是此后累计分红；
 > 高分红老股早年会被减成负数（茅台 2015 年约 -117.6）。本函数遇到 ≤0 价格直接抛错。**长区间回测请取 `adjust=''`，
 > 再用 §1.6 的比例因子复权**。本接口**没有成交额**，需要成交额用 §1.3。
+
+> ⚠️ **前复权序列不能按日增量落库。** 前复权的基准是「最新一日」，每次分红除权都会把整段历史重新定价——
+> 同一根 K 线，今天取到的和三个月前取到的不是同一个数。把每天的 qfq 结果追加进同一张表，库里会并存两套价格，
+> 用它算指标或回测都是隐性错误。要每日落库请取 `adjust=''` 存不复权价、另存 §1.6 的因子，用到时再 `apply_adjust()` 换算；
+> 只有「每次重新全量拉取」的用法才适合直接用 qfq。
 
 <!-- v39-tencent-kline:start -->
 ```python
